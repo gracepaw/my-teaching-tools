@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>即時文字雲</title>
   <script src="https://cdn.jsdelivr.net/npm/wordcloud@1.2.2/src/wordcloud2.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -112,7 +111,7 @@
   <footer>展示頁面 · 自動即時更新</footer>
 
   <div id="qr-panel">
-    <canvas id="qr-canvas"></canvas>
+    <img id="qr-img" width="140" height="140" alt="QR Code" />
     <div id="qr-label">📱 掃碼輸入關鍵字</div>
     <div id="qr-url"></div>
   </div>
@@ -183,7 +182,8 @@
     // 產生 QR code，指向同網域的 index.html
     const inputUrl = location.href.replace('display.html', 'index.html');
     document.getElementById('qr-url').textContent = inputUrl;
-    QRCode.toCanvas(document.getElementById('qr-canvas'), inputUrl, { width: 140, margin: 1 });
+    const qrImg = document.getElementById('qr-img');
+    qrImg.src = 'https://api.qrserver.com/v1/create-qr-code/?size=140x140&margin=4&data=' + encodeURIComponent(inputUrl);
 
     onSnapshot(collection(db, 'wordcloud_words'), (snap) => {
       const words = snap.docs.map(d => d.data().word).filter(Boolean);
