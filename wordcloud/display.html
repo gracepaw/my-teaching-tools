@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>即時文字雲</title>
+  <script src="https://cdn.jsdelivr.net/npm/wordcloud@1.2.2/src/wordcloud2.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Noto Sans TC', sans-serif;
+      background: #0f172a;
+      color: white;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 28px;
+      background: rgba(255,255,255,0.05);
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    header h1 { font-size: 1.2rem; font-weight: 600; }
+    .stats { font-size: 0.9rem; color: #94a3b8; }
+    .live-dot {
+      display: inline-block;
+      width: 8px; height: 8px;
+      background: #4ade80;
+      border-radius: 50%;
+      margin-right: 6px;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    #canvas-container {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    canvas { max-width: 100%; }
+    .empty {
+      text-align: center;
+      color: #475569;
+    }
+    .empty p { font-size: 1.1rem; margin-bottom: 8px; }
+    .empty small { font-size: 0.85rem; }
+    footer {
+      text-align: center;
+      padding: 12px;
+      color: #475569;
+      font-size: 0.8rem;
+    }
+    .btn-clear {
+      background: rgba(239,68,68,0.15);
+      color: #fca5a5;
+      border: 1px solid rgba(239,68,68,0.3);
+      border-radius: 8px;
+      padding: 6px 14px;
+      font-size: 0.8rem;
+      cursor: pointer;
+    }
+    .btn-clear:hover { background: rgba(239,68,68,0.3); }
+    #qr-panel {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: white;
+      border-radius: 12px;
+      padding: 12px;
+      text-align: center;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+    #qr-panel canvas { display: block; }
+    #qr-label {
+      color: #1a1a2e;
+      font-size: 0.75rem;
+      margin-top: 6px;
+      font-weight: 600;
+    }
+    #qr-url {
+      color: #4f6ef7;
+      font-size: 0.65rem;
+      word-break: break-all;
+      max-width: 140px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>☁️ 即時文字雲</h1>
+    <div style="display:flex;align-items:center;gap:16px;">
+      <span class="stats"><span class="live-dot"></span>即時更新｜<span id="count">0</span> 個關鍵字</span>
+    </div>
+  </header>
+
+  <div id="canvas-container">
+    <div class="empty" id="empty">
+      <p>等待學生輸入關鍵字…</p>
+      <small>請學生開啟 index.html 頁面送出詞彙</small>
+    </div>
+    <canvas id="wc" style="display:none;"></canvas>
+  </div>
+
+  <footer>展示頁面 · 自動即時更新</footer>
+
+  <div id="qr-panel">
+    <canvas id="qr-canvas"></canvas>
+    <div id="qr-label">📱 掃碼輸入關鍵字</div>
+    <div id="qr-url"></div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+    import { getFirestore, collection, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyCI9tvPjo_JzagX-9uRqbaJvVFDnfX0YwU",
+      authDomain: "my-teaching-tools-20260628.firebaseapp.com",
+      projectId: "my-teaching-tools-20260628",
+      storageBucket: "my-teaching-tools-20260628.firebasestorage.app",
+      messagingSenderId: "880986817789",
+      appId: "1:880986817789:web:71be30eec343c9dcc8ea94"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    const canvas = document.getElementById('wc');
+    const empty = document.getElementById('empty');
+    const countEl = document.getElementById('count');
+
+    function resizeCanvas() {
+      const container = document.getElementById('canvas-container');
+      canvas.width = container.clientWidth - 40;
+      canvas.height = container.clientHeight - 40;
+    }
+
+    function renderCloud(words) {
+      if (words.length === 0) {
+        canvas.style.display = 'none';
+        empty.style.display = 'block';
+        return;
+      }
+
+      // 統計詞頻
+      const freq = {};
+      words.forEach(w => { freq[w] = (freq[w] || 0) + 1; });
+      const maxFreq = Math.max(...Object.values(freq));
+
+      const list = Object.entries(freq).map(([word, count]) => [
+        word,
+        Math.round(20 + (count / maxFreq) * 80)
+      ]);
+
+      empty.style.display = 'none';
+      canvas.style.display = 'block';
+      resizeCanvas();
+
+      const colors = ['#60a5fa','#34d399','#fbbf24','#f87171','#a78bfa','#38bdf8','#fb923c'];
+
+      WordCloud(canvas, {
+        list,
+        gridSize: 10,
+        weightFactor: 1,
+        fontFamily: 'Noto Sans TC, sans-serif',
+        color: () => colors[Math.floor(Math.random() * colors.length)],
+        backgroundColor: 'transparent',
+        rotateRatio: 0.3,
+        rotationSteps: 2,
+        shrinkToFit: true,
+        drawOutOfBound: false,
+      });
+    }
+
+    // 產生 QR code，指向同網域的 index.html
+    const inputUrl = location.href.replace('display.html', 'index.html');
+    document.getElementById('qr-url').textContent = inputUrl;
+    QRCode.toCanvas(document.getElementById('qr-canvas'), inputUrl, { width: 140, margin: 1 });
+
+    onSnapshot(collection(db, 'wordcloud_words'), (snap) => {
+      const words = snap.docs.map(d => d.data().word).filter(Boolean);
+      countEl.textContent = words.length;
+      renderCloud(words);
+    });
+
+    window.addEventListener('resize', () => {
+      // 觸發重繪
+      countEl.dispatchEvent(new Event('change'));
+    });
+  </script>
+</body>
+</html>
